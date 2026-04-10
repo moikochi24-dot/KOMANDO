@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interactive Space - Final Edition</title>
+    <style>
+        * { box-sizing: border-box; touch-action: manipulation; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+        }
+        canvas { position: fixed; top: 0; left: 0; z-index: 1; }
+        #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
+        
+        .char {
+            position: absolute; color: white; font-size: 5rem; font-weight: 900;
+            pointer-events: none; user-select: none;
+            text-shadow: 0 0 20px rgba(255,255,255,0.5);
+            animation: moveUp 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+
+        @keyframes moveUp {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            100% { transform: translate(-50%, -250px) scale(2); opacity: 0; }
+        }
+
+        #hidden-input {
+            position: absolute; opacity: 0; top: 0; left: 0; width: 100%; height: 100%;
+            border: none; outline: none; z-index: 10; cursor: default;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="ui"></div>
+<input type="text" id="hidden-input" autocomplete="off" spellcheck="false">
+
+<audio id="snd-click" src="click.mp3"></audio>
+<audio id="snd-battle" src="battle.mp3"></audio>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const ui = document.getElementById('ui');
+    const input = document.getElementById('hidden-input');
+    
+    let stars = [], particles = [], typedBuffer = "";
+    let isSpecial = false, bgImg = new Image();
+    bgImg.src = 'background.jpg';
+
+    // Inisialisasi
+    function init() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        stars = Array.from({length: 150}, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            z: Math.random() * canvas.width,
+            o: Math.random()
+        }));
+    }
+
+    // Partikel Ledakan
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x; this.y = y; this.color = color;
+            this.v = {x: (Math.random()-0.5)*15, y: (Math.random()-0.5)*15};
+            this.life = 1;
+        }
+        draw() {
+            ctx.globalAlpha = this.life;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 3, 0, Math.PI*2);
+            ctx.fill();
+        }
+        update() {
+            this.x += this.v.x; this.y += this.v.y;
+            this.v.y += 0.2; // gravitasi
+            this.life -= 0.02;
+        }
+    }
+
+    function processKey(key) {
+        if (!key || key.length !== 1) return;
+
+        // Suara Klik
+        const cSnd = document.getElementById('snd-click');
+        cSnd.currentTime = 0; cSnd.play().catch(()=>{});
+
+        // Visual Huruf
+        const x = Math.random() * (canvas.width * 0.8) + (canvas.width * 0.1);
+        const y = Math.random() * (canvas.height * 0.4) + (canvas.height * 0.4);
+        const color = `hsl(${Math.random()*360}, 100%, 70%)`;
+
+        const el = document.createElement('div');
+        el.className = 'char';
+        el.style.left = x + 'px'; el.style.top = y + 'px';
+        el.style.color = color;
+        el.innerText = key.toUpperCase();
+        ui.appendChild(el);
+        setTimeout(() => el.remove(), 1000);
+
+        // Efek Partikel
+        for(let i=0; i<12; i++) particles.push(new Particle(x, y, color));
+
+        // DETEKSI FANDRA
+        typedBuffer += key.toLowerCase();
+        if (typedBuffer.endsWith("fandra")) {
+            activateSpecial();
+            typedBuffer = "";
+        }
+        if (typedBuffer.length > 20) typedBuffer = typedBuffer.slice(-10);
+    }
+
+    function activateSpecial() {
+        if (isSpecial) return;
+        isSpecial = true;
+        const bSnd = document.getElementById('snd-battle');
+        bSnd.currentTime = 0; bSnd.play().catch(()=>{});
+
+        setTimeout(() => {
+            isSpecial = false;
+            bSnd.pause();
+        }, 5000);
+    }
+
+    function render() {
+        ctx.globalAlpha = 1;
+        if (isSpecial && bgImg.complete) {
+            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+        } else {
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+        }
+
+        // Bintang
+        ctx.fillStyle = "#fff";
+        stars.forEach(s => {
+            const size = (1 - s.z / canvas.width) * 3;
+            ctx.globalAlpha = s.o;
+            ctx.beginPath(); ctx.arc(s.x, s.y, size, 0, Math.PI*2); ctx.fill();
+            s.o += 0.01; if(s.o > 1) s.o = 0;
+        });
+
+        // Partikel
+        particles.forEach((p, i) => {
+            p.update(); p.draw();
+            if (p.life <= 0) particles.splice(i, 1);
+        });
+
+        requestAnimationFrame(render);
+    }
+
+    // EVENT HANDLING (The Fix)
+    // Untuk PC
+    window.addEventListener('keydown', (e) => {
+        if (e.key.length === 1) processKey(e.key);
+    });
+
+    // Untuk Mobile - Input tersembunyi difokuskan terus
+    input.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (val) {
+            processKey(val.slice(-1));
+            e.target.value = ""; // Langsung kosongkan agar bisa ngetik lagi
+        }
+    });
+
+    // Re-focus input jika user klik sembarang tempat
+    document.addEventListener('click', () => input.focus());
+    document.addEventListener('touchstart', () => input.focus());
+
+    window.addEventListener('resize', init);
+    init(); render();
+    input.focus();
+</script>
+
+</body>
+</html>
